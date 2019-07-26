@@ -1,0 +1,840 @@
+% April 26, 2018
+% ELT
+% This is a knitr document to produce a report on any two-digit industry sector (e.g. construction NAICS 23)
+% Rev 1 - Rev6; make some changes to enhance reporting including:
+%       modify working directory path to include WorkComp
+% added monthly distribution, generalized word cloud input
+% When changing sectors, be aware of all lines to change; start with lines 32 & 75
+% Apr 30, added input file for employment numbers
+% May 14, revised employment numbers for source 2015 ACS (TN only), removed rev 3 input file
+% May 31, added Other Considerations/Summary/Conclusion sections and fatalities
+% June 1, added code to control placement of figures and tables (lines 17-23)
+% Rev 7; July 10, modified for Cressler, Moore, and MJones comments
+% Rev 8; July 20, modified Age graphic per MJ suggestion
+% Rev 9; July 30, revise per Paul Terry's comments
+
+% 2018 Version; Oct. 23, 2018, update for 3rd year data
+% Rev 1; Oct. 25, change format for 3rd year- expand tables & drop extraneous figures
+% Rev 2; Oct. 26, change age, firm size, & treatment tables
+% Rev 3; April 23, revise to incorporate 2014-2016 compensable claims
+% Taken from the 3rd year construction template, Const23_2018rev3.Rnw
+
+% 2018 Version; Oct. 23, 2018, update for 3rd year data
+% Rev 1; ???
+% Rev 2; June 3, edit document for final version. This will be the template for the health care and manufacturing reports
+% Rev 3; June 4, rewrite intro, add Background, modify data
+
+
+\documentclass[9pt]{article}
+\usepackage[letterpaper, total={7in, 9.5in}]{geometry}
+\usepackage{booktabs}				
+\usepackage{longtable}
+\usepackage{indentfirst}    % This will indent first paragraph of section
+\usepackage[section]{placeins}
+
+\usepackage{float}  % Try these lines (below) to keep the figures and tables where you want them
+
+\usepackage{lscape}
+
+
+\let\origfigure\figure
+\let\endorigfigure\endfigure
+\renewenvironment{figure}[1][2] {
+    \expandafter\origfigure\expandafter[h]} 
+    {\endorigfigure}                    % Try these lines (above) to keep the figures and tables where you want them
+
+\setcounter{topnumber}{2}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+\renewcommand{\topfraction}{0.5}
+\renewcommand{\bottomfraction}{0.5}
+\renewcommand{\textfraction}{0.2}
+\renewcommand{\floatpagefraction}{0.8}
+
+\setlength{\textfloatsep}{16pt plus 2pt minus 2pt}
+
+\usepackage{hyperref}
+
+
+
+
+\title{An Analysis of Workplace Injury and Job Tenure in the Transportation and Warehousing Sector Using Tennessee Workers' Compensation Claims from 2014-2016}
+
+\author{Construction Industry Research and Policy Center\\ The University of Tennessee, Knoxville}
+
+\date{July 2019}	
+
+\begin{document}
+
+\maketitle
+
+
+\noindent \emph{This report was funded by a collaborative agreement with the National Institute of Occupational Safety and Health (NIOSH) Grant Number: 5U6-OH10896-03. The findings and recommendations in this document are those of the authors and do not necessarily represent the views of NIOSH.}
+
+\pagebreak
+
+\tableofcontents
+
+\pagebreak
+
+\listoffigures
+\listoftables
+
+\pagebreak
+
+% These are global options
+<<setup, include=FALSE, cache=FALSE, echo=FALSE>>=
+opts_chunk$set(fig.path='figures/plots-', fig.align='center', fig.show='hold', eval=TRUE, echo=TRUE)
+options(replace.assign=TRUE,width=80)
+
+@
+
+<<Packages, echo=FALSE, message=FALSE, warning=FALSE>>=
+
+# Uncomment the next line to clear the environment
+# rm(list=ls())
+
+# setwd(paste0('~/', 'Your folder'))
+setwd(paste0('~/', 'Desktop/WorkComp/3rdYearWCfiles/3rdYearIndRpt'))
+
+# Input injury narratives
+narratives <-   read.csv('./rsn_table.csv', sep=',', stringsAsFactors = F) # rsn_table was created to contain injury narratives & Naics4 only
+# Change Naics4 to character
+narratives$Naics4 <- as.character(narratives[,1])
+# Use regular expressions to select appropriate narratives for jeopQ based on Naics2
+
+# The next few lines will change depending on industry desired
+################################################################
+INDUSTRY_TYPE <- 'transportation'         #### will change
+MEDIAN_TENURE <- 4.4
+
+jeopQ <- narratives[ c(grep('^4[89]',  narratives[,1], value=F )), 2]  # transportation
+# get matches in 2nd column of rsn_table
+
+# for other sectors, see next lines (uncomment)
+
+# jeopQ <- narratives[ c(grep('^3[123]', narratives[,1], value=F )), 2]  # manufacturing
+# jeopQ <- narratives[ c(grep('^4[45]',  narratives[,1], value=F )), 2]  # retail trade
+# jeopQ <- narratives[ c(grep('^4[89]',  narratives[,1], value=F )), 2]  # transportation
+# and so on ....
+
+# The barplot labels on the last two figures (i.e. lines 496 and 501 have been manually input.) Adjust as necessary.
+################################################################
+
+# Load the packages needed
+load_pkg <- c('readr', 'data.table', 'xtable', 'knitr', 'kableExtra', 'magrittr',
+              'tm', 'SnowballC', 'wordcloud', 'R.utils','dplyr')      
+
+for (i in 1:length(load_pkg)) {
+  
+      if (!require(load_pkg[i], character.only=T)){
+        install.packages(load_pkg[i], 
+                         repos="https://cran.rstudio.com/",
+                         quiet=TRUE)
+        require(load_pkg[i], character.only=T) #same as library(package name)
+      }
+}
+
+
+
+# Read input file consisting of all matched and unmatched claims from 2014-2016
+BasetableND <-read.csv("./BasetableND.csv", stringsAsFactors = FALSE)
+
+# Keep only matched observations from 2014-2016
+M_data <- BasetableND[-which(BasetableND$Match =='No Match') , ]
+M_data$DTE_OF_INJR <- as.Date(M_data$DTE_OF_INJR)
+M_data <- M_data[M_data$DTE_OF_INJR <= '2016-12-31' & M_data$DTE_OF_INJR >= '2014-1-1' , ]
+
+
+
+# This is employment data by year and industry_code and rate comparisons; two digit codes include '31-33', '44-45', and '48-49'
+InjComp <- read.csv("./InjCompTable2014-2016.csv")
+
+# create a data frame from scratch (mydata)
+NAICS <- as.character(c('11', '21', '22', '23', '31', '32', '33', '42', '44', '45', '48', '49', '51',
+                        '52', '53', '54', '55', '56', '61', '62', '71', '72', '81', '92'))
+industry <- c("agriculture", "mining", "utilities", "construction", "manufacturing",
+              "manufacturing","manufacturing", 'wholesale trade', 'retail trade', 'retail trade',
+              'transportation', 'transportation', 'information', 'finance', 'real estate', 'professional',
+              'management', 'administrative', 'educational services', 'health care', 'arts', 'food services',
+              'other services', 'public admininstration')
+search_term <- c('^11','^21', '^22', '^23', '^3[123]', '^3[123]', '^3[123]', '^42', '^4[45]', '^4[45]',
+                 '^4[89]', '^4[89]', '^51', '^52', '^53', '^54', '^55', '^56', '^61', '^62', '^71', '^72',
+                 '^81', '^92')
+mydata <- data.frame(NAICS, industry, search_term )
+
+# Filter the M_data to leave only the pertinent industry information and private workers
+all_matches <- which(mydata[,2] == INDUSTRY_TYPE) # all industry matches
+
+# The next line works to profile two-digit industries; change 'Naics2' if you need to profile three or four-digit
+IndTable  <- M_data[which(M_data$Naics2 %in% mydata[all_matches , 1]) , ] # captures all industry matches
+
+# Keep private workers only                        
+IndTable  <- dplyr::filter(IndTable, IndTable$OWNER == 5)
+
+@
+
+
+\section{Introduction}
+
+The Construction Industry Research and Policy Center (CIRPC) at the University of Tennessee, Knoxville received a grant from the Centers for Disease Control - National Institute of Occupational Safety and Health (NIOSH) to use Tennessee workers' compensation (WC) claims data for occupational injury\footnote{In this document, the term `injury' may mean injury and/or illness.} surveillance and prevention. This report provides a brief overview of the private industry WC claims filed within the Tennessee \Sexpr{INDUSTRY_TYPE} and warehousing sector for 2014-2016.  
+
+A NIOSH initiative exists to provide statistical information regarding workplace injuries that may supplement the Survey of Occupational Injuries and Illnesses (SOII) information currently assembled by the Bureau of Labor Statistics (BLS) since the SOII is only a sampling survey. Since 2015, NIOSH has awarded a number of grants to states to encourage the additional utilization of WC claims information in those states.  In the summer of 2016, a grant was awarded to CIRPC that resulted in an agreement with the Tennessee Bureau of Workers’ Compensation to make this information available subject to agreed-upon confidentiality limits.  By combining the WC information with unemployment insurance records, it is possible to perform injury surveillance with respect to the injured employee's industry, employer size, age, and several injury characteristics including job tenure.
+
+This report will examine several of these injury dimensions and their relationship to job tenure.\footnote{In this study, the concept of `job tenure' relates to employment with a given employer and not employment with any employer or in  a particular craft or occupation with a given employer.} When tenure is mentioned in safety research, it is generally found that new workers are more likely to be injured on the job than those with greater experience. Unfortunately, in these studies details are frequently missing that would help in understanding this phenomenon and in documenting a possible remedy. For the most part, the studies and available data relate to economy-wide issues and fail to consider injury cause or impact.
+
+It is our hope that this report will be used by the \Sexpr{INDUSTRY_TYPE} sector\footnote{North American Industry Classification System - the two-digit sector(s) \Sexpr{mydata[all_matches , 1]} represent(s) \Sexpr{INDUSTRY_TYPE} and warehousing. For the remainder of this document, `transportation' shall be used in lieu of `transportation and warehousing.'} to better understand the major sources (causes) of injury, the most prevalent nature (type) of injuries sustained, the most frequently injured body parts, and the relationship between job tenure and injury.  A better understanding of these factors can better inform the Tennessee \Sexpr{INDUSTRY_TYPE} sector's safety initiatives.
+
+
+
+\section{Key Findings and Recommendations}
+
+% The itemized list below will change depending on the sector/industry
+
+The key findings of this report include:
+\begin{enumerate}
+
+\item Lifting and strains\footnote{We differentiate between strain as a cause and strain as a type. The former is an overexertion and the latter can be defined as an overstretching of some part of the musculature.} were the leading sources/causes of injury in \Sexpr{INDUSTRY_TYPE}. 
+Recommendation: Emphasize training on lifting techniques and use work modifications to reduce strains on the bodies of workers.
+\item The lower back and shoulders were the most frequently injured body parts. Lifting (back) and cumulative stresses (shoulders) are likely factors.
+Recommendation: As above, provide training on lifting best practices and modify work procedures to reduce physical stresses.
+\item About eight percent of all claims required an emergency room visit. Recommendation:  Have protocols in place to ensure injured workers requiring emergency care receive rapid and safe transport.
+\item Transportation had more fatalities than any other NAICS sector and most were motor vehicle accidents. Thirty-six percent of those fatally injured were in their first year with their employer.
+Recommendation: Ensure drivers adhere to mandatory rest periods and other limits on driving time. Conduct pre-employment and periodic motor vehicle record checks on all drivers of company vehicles.
+\item Workers were especially vulnerable to injury during their first year. Forty percent of all claims in \Sexpr{INDUSTRY_TYPE} were made by such workers. Smaller employers had even higher first-year injury proportions. 
+Recommendation:  Provide company orientation `onboarding' and consider assigning new employees a trusted employee as a `mentor' in their early weeks.
+\item As a proportion of all injuries, non-fatal severe injuries were approximately ten percent. Almost half occurred to first-year employees.
+Recommendation: Every firm is self-insured with its own safety resources or has a WC insuror with loss control expertise. The firm should engage all available resources to institute and maintain best practices in occupational safety and pre-employment screening.
+
+\end{enumerate}
+
+
+\section{Background}
+
+\FloatBarrier
+
+The BLS already publishes SOII injury rates for many industries but rates calculated with WC data can be an important supplement. Table \ref{tab:InjComp} lists the Tennessee private sector BLS rates and the 2014-2016 WC counterparts. The BLS and WC composite rates for all Tennessee private sector employees are shown at the top of the table as 2.9 and 2.5 per 100 full-time equivalent (FTE) workers respectively. In making comparisons, differences in the two calculations must be considered. They differ in several ways. Here are a few:
+\begin{itemize}
+    \item BLS rates are sample estimates and are subject to sampling error.
+    \item WC industry rate numerators/counts in this report contain `matched' claims only and are understated unless extrapolated to compensate.
+    \item WC industry rates are adjusted upward/downward according to the industry's average annual working hours.\footnote{Data on industry annual working hours from the 2016 American Community Survey (ACS) PUMS.}
+    
+\end{itemize}
+
+
+
+<< InjComp, echo=FALSE, fig.pos='!h'>>=
+InjComp <- InjComp[ , c(1,3,6,9)] # keep only rows and columns needed
+kable(head(InjComp, 20) , 'latex', col.names=c('Naics2', 'Sector Description', '2016 BLS Rate','2014-2016 Work Comp Rate'), caption = "NAICS Industry Injury Rates - 2016 BLS Rates vs. 2014-2016 Work Comp Rates[note]", booktabs=T) %>% 
+    add_footnote("Workers' compensation rates reflect only the matched portion (78.3 percent) of compensable, private claims in the WC universe.", notation="symbol") 
+
+@
+
+Since the WC `All Industries' rate represents \underline{only} the matched portion of private sector claims, the true rate will be larger. Using linear extrapolation to adjust for unmatched claims (of \Sexpr{(round((nrow(BasetableND) - nrow(M_data)) * 100 / nrow(BasetableND) , 0))} percent) yields an estimated rate of \Sexpr{format(round(InjComp[(match('All Industries', InjComp$Sector_Description)), 4] * 1/ (1 - (nrow(BasetableND) - nrow(M_data))  / nrow(BasetableND)), 1) , nsmall=1)} per 100 FTE.
+
+In 2016, the BLS rate per 100 FTE workers in the \Sexpr{INDUSTRY_TYPE} sector was \Sexpr{InjComp[(match(INDUSTRY_TYPE, InjComp$Sector_Description)), 3] } per 100 FTE. By comparison, the rate using the Tennessee 2014-2016 WC claims data was \Sexpr{InjComp[(match(INDUSTRY_TYPE, InjComp$Sector_Description)), 4] }. Adjusting with linear extrapolation as before yields a rate of \Sexpr{format(round(InjComp[(match(INDUSTRY_TYPE, InjComp$Sector_Description)), 4] * 1/ (1 - (nrow(BasetableND) - nrow(M_data))  / nrow(BasetableND)), 1) , nsmall=1)} per 100 FTE. The WC rates include all self-reported claims and are more comprehensive than a sample estimate.
+
+\section{Data and Data Limitations}
+
+State WC systems generally collect First Report of Injury Information (FROI) in a standardized electronic format. The first report contains sixty-eight fields to identify characteristics of the claimant and employer as well as specific details of the injury. Often a short narrative is also included. Tennessee follows this IAIABC electronic protocol for claim submission.\footnote{The International Association of Industrial Accident Boards and Commissions, or IAIABC, is an association of workers' compensation jurisdictional regulatory agencies.} 
+
+During 2014-2016, there were \Sexpr{format(nrow(BasetableND),big.mark=',')} compensable claims received for all industries.\footnote{See the Appendix for the structure of the claim transactions.} Of these, \Sexpr{round((nrow(BasetableND) - nrow(M_data)) * 100 / nrow(BasetableND) , 0)} percent could not be matched to a specific industry and therefore not included in the analysis. Of the matched claims, \Sexpr{format(nrow(IndTable), big.mark=',')}\footnote{Sector tables throughout this document may sum to less than \Sexpr{format(nrow(IndTable), big.mark=',')} claims because of missing observations or smaller subcategories that are not shown for brevity.} are \Sexpr{INDUSTRY_TYPE} sector claims (NAICS \Sexpr{mydata[all_matches , 1]}) within the private sector.\footnote{Since \Sexpr{round((nrow(BasetableND) - nrow(M_data)) * 100 / nrow(BasetableND) , 0)} percent of all claims received could not be matched to a specific industry, the total claims in the private \Sexpr{INDUSTRY_TYPE} sector likely exceeded \Sexpr{format(nrow(IndTable), big.mark=',')} by a similar percentage.} Over 70 percent of the transportation claimants were male.
+
+Though more comprehensive than the BLS sampling, these WC data have limitations of their own. In addition to the unmatched claims mentioned previously, there are missing data within individual claims. In fact, certain data fields have significant numbers of missing observations. For example, in the \Sexpr{INDUSTRY_TYPE} sector, \Sexpr{round(100 * sum(is.na(IndTable$tenure_yrs))/nrow(IndTable), 0)} percent of the claims have missing values needed to determine employee tenure at the time of injury. Report results, including those related to tenure, should not be affected significantly assuming that missing values occur randomly. Some injuries go unreported, and it is not known how this affects results.
+
+There are at least two other important limitations of the data. First, older workers and those with longer tenure may not be exposed to the same hazards as new workers. Second, the claim data can be used to profile only injured workers. Though there is some public information on workforce age distribution and median tenure, we know little about other characteristics of workers not injured.
+
+
+
+\section{Investigative Focus}
+This study examined specific injury information and related that to a number of factors traditionally examined, such as nature and cause of injury, but also allowed consideration of tenure with the employer. In addition, it related these reported injuries to the size of the employer and other employment characteristics.
+
+
+The WC data include all industries but this report focused on the \Sexpr{INDUSTRY_TYPE} sector.  Of all injuries, a substantial proportion were reported by new workers during the first year of employment with their current employer. Recognition of this fact, along with other relationships found in the data (such as employer size, NAICS code, and initial treatment), may have relevance, for example, to the nature of new worker training or onboarding.
+
+The data available from the FROI allowed consideration of the following characteristics:
+\begin{itemize}
+  \item Body part injured along with injury cause and type
+  \item Age group
+  \item NAICS industry and firm size
+  \item Tenure with employer
+\end{itemize}
+
+
+
+
+
+\section{Findings on Injury-Tenure Relationship}
+
+
+
+% Create a plot function below
+<<TenureYrs, echo=FALSE, warning=F, message=F, fig.width=4, fig.height=4, fig.cap='Cumulative Proportion of Injuries By Tenure With Employer', fig.pos='htbp' >>=
+
+# Count the number of injuries within defined intervals of tenure w/ the function below
+# Plot cumulative proportion of injuries vs. (employer) tenure_yrs 
+
+# Create a function to use this code multiple times for multiple plots
+tenure_func <- function(x, x1){
+    
+        U_ten <- c(0,0.01, 1,2,3,4,5,10,15,20,25,30,40,50)
+        counts_ten <- numeric(length(U_ten)-1)  # creates a vector of length 13 (0,0,0,0,...0,0,0)
+            for(i in 1:length(counts_ten)) {
+                counts_ten[i] <- length(which(x$tenure_yrs >= U_ten[i] & x$tenure_yrs < U_ten[i+1]))
+            }
+        
+        p.plot <- plot(U_ten[-1], cumsum(counts_ten/sum(counts_ten)), type='b', xlab= x1, 
+                    ylab= 'Cumulative Proportion', ylim=c(0,1))
+                    abline(v=1, col='red')
+                    text(10,0.5, c('1 year'), col='red', cex=0.9)
+        
+}
+
+
+# later we will look at severity also
+severe_clms <- dplyr::filter(IndTable, IndTable$INIT_TMNT == 3 | IndTable$INIT_TMNT == 4 | IndTable$INIT_TMNT == 5)  # hospital, ER, or major medical
+@
+
+
+% Compute the counts_ten vector for use in the in-line code below
+<<Vector,echo=FALSE, message=FALSE, warning=FALSE>>= 
+        U_ten <- c(0,0.01, 1,2,3,4,5,10,15,20,25,30,40,50)
+        counts_ten <- numeric(length(U_ten)-1)
+        for(i in 1:length(counts_ten)) {
+            counts_ten[i] <- length(which(IndTable$tenure_yrs >= U_ten[i] & IndTable$tenure_yrs < U_ten[i+1]))
+        }
+@
+
+
+In BLS publication USDL 16-1867, the January 2016 median tenure reported for the national \Sexpr{INDUSTRY_TYPE} industry was \Sexpr{MEDIAN_TENURE} years and 23 percent of workers (across all industries) had one year or less of tenure. Figure \ref{fig:TenureAll} shows that a substantial proportion (\Sexpr{ round(cumsum(counts_ten / sum(counts_ten) )[2] * 100, 0) } percent) of Tennessee \Sexpr{INDUSTRY_TYPE} injuries occurred during the first year with an employer. Assuming the Tennessee tenure distribution approximates the national distribution, the proportion of early injuries is significant. 
+
+
+
+
+<<TenureAll, echo=FALSE, warning=F, message=F, fig.width= 4 , fig.height= 4 , fig.cap='Cumulative Proportion of Injuries By Tenure With Employer', fig.pos='htbp' >>=
+
+# Figure 1
+        
+tenure_func(IndTable, 'Employee Tenure - Years')
+@
+
+
+
+
+
+<<TenureMonths, echo=FALSE, warning=F, message=F, fig.width=4, fig.height= 4 , fig.cap='Cumulative Proportion of First-Year Injuries By Tenure With Employer (0 to 12 Months only)', fig.pos='htbp' >>=
+# Now do the same for months within first year
+# Figure 2
+
+U <- c(0,0.00001, 1,2,3,4,5,6,7,8,9,10,11,12)
+counts_months <- numeric(length(U)-1)
+for(i in 1:length(counts_months)) {
+    counts_months[i] <- length(which( IndTable$tenure_yrs * 12  >= U[i] & IndTable$tenure_yrs * 12  < U[i+1]))
+}
+
+plot(U[-1], cumsum(counts_months/sum(counts_months)), type='b', 
+     xlab= 'Employee Tenure - months', ylab= 'Cumulative Proportion', ylim=c(0,1))
+      abline(v=3, col='red')
+      text(6 , 0.2 , c('3 months'), col='red', cex=0.9)
+       
+@
+
+\clearpage
+
+To further illustrate the increased risk to new employees, consider the injury distribution within the first year. Figure \ref{fig:TenureMonths} includes only first-year injuries and shows that about \Sexpr{ round(cumsum(counts_months / sum(counts_months) )[4] * 100, 0) } percent of the first-year injuries occurred during the first three months. Clearly the initial months with an employer were critical.
+
+<<AgeTenure, echo=FALSE, warning=F, message=F,  fig.cap='AgeYrs', fig.cap='Tabluation of Claims by Age Group', fig.pos='htbp'>>=
+
+# Table 2
+
+Short <- c(16,20,25,35,45,55,65,90)
+counts_age_short <- numeric(length(Short)-1)
+for(i in 1:length(counts_age_short)) {
+    counts_age_short[i] <- length(which(IndTable$age_yrs >= Short[i] & IndTable$age_yrs < Short[i+1] & IndTable$tenure_yrs <=1 ))
+}
+
+All <- c(16,20,25,35,45,55,65, 90)
+counts_age_all <- numeric(length(All)-1)
+for(i in 1:length(counts_age_all)) {
+    counts_age_all[i] <- length(which(IndTable$age_yrs >= All[i] & IndTable$age_yrs < All[i+1] & IndTable$tenure_yrs >= 0 ))
+}
+
+a <- c('16-19 years', '20-24 years', '25-34 years', '35-44 years', '45-54 years', '55-64 years',  '65+ years')
+
+proportion <- round(c(counts_age_short/(counts_age_all)), 2)
+
+Tenure_Age <- cbind(a, counts_age_short, counts_age_all, proportion) # This is a table
+
+
+
+kable(Tenure_Age, format='latex', col.names=c('Age Group', 'Count', 'Total Count', 'First Year Prop.'), caption = 'Claims by Age', booktabs=T) %>% 
+    add_header_above(c("", "Tenure - 1 Year or Less" = 1, "All Tenure Lengths" = 2))
+
+@
+
+
+
+
+
+
+
+
+
+
+
+% The paragraph below will change depending on the sector/industry
+
+
+
+
+
+
+
+
+
+Table \ref{tab:AgeTenure} shows injuries that occurred for short-tenured (i.e. less than one year) employees by age group as a proportion of all injured employees in the group. That proportion generally decreased by age. Workers under 35 suffered a greater proportion of first-year injuries than the first-year baseline proportion of \Sexpr{ round(cumsum(counts_ten / sum(counts_ten) )[2] , 2) } but this does not necessarily mean that shorter tenure was less significant for older employees. Since we know little about the tenure distribution of the uninjured employees, these proportions indicate nothing about the relative risk of short-tenured employees within a particular age group. For example, if short-tenured employees in a particular group suffered 30 percent of the injuries but composed only 15 percent of the total, their relative risk would have been quite high. Therefore, the effect of tenure combined with age cannot be determined with these data. Other studies have shown that though older workers have lower total rates of injury, their new-worker rate is higher than the youngest workers.\footnote{Morassaei, Sara, et al. "Examining job tenure and lost-time claim rates in Ontario, Canada, over a 10-year period, 1999–2008." Occup Environ Med 70.3 (2013): 171-178.} A companion analysis to this report,\footnote{Taylor, Edward. "An Old Problem for New Workers, 2014-2016", July 2019} found that the 45-54 age group had the greatest injury risk among new workers.
+
+
+
+
+
+The data show that size of the employer may make a difference for injuries to new employees. Table \ref{tab:FirmSz} indicates the proportion of first-year injuries begins to decrease as the firm size reaches 20 employees and decreases significantly at 100 employees. Larger firms are usually thought to expend more effort in training new employees. Firms with 10-19 employees had first-year employees reporting injuries in a greater proportion than other groups. Firms with less than 10 employees had slightly lower numbers than the groups spanning 10-49. 
+
+<<FirmSz, echo=FALSE, fig.pos='htbp'>>=
+        
+
+IndTable$low_tenure <- ifelse(IndTable$tenure_yrs <= 1, 1, NA)   # Idendify claims w/ tenure < 1
+low_tenure_count <- sum(!is.na(IndTable$low_tenure))
+
+Cols_needed <- c('CLM_TRAN_NBR', 'IA_BODY_PART_DESC', 'IA_SRCE_DESC', 'NATR_OF_INJR_DESC',
+                 'inj_yr', 'Naics3', 'tenure_yrs', 'age_yrs', 'INIT_TMNT', 'low_tenure')
+
+IndTable$firm_size <- cut(IndTable$EMPL2, c(0,5,10,20,50,100,250,500,1000,1000000), 
+    labels=c('0-4', '5-9', '10-19', '20-49', '50-99', '100-249', '250-499', '500-999', '1000+'), right=F)
+
+        
+FirmSize <- IndTable[complete.cases(IndTable$tenure_yrs), ]
+FirmSize <- FirmSize[ , c(Cols_needed, "firm_size")] %>%
+  group_by(firm_size) %>%
+  count(firm_size)
+
+FirmSize_early <- IndTable[ , c(Cols_needed, "firm_size")] %>%
+  filter(low_tenure == 1)     %>%
+  group_by(firm_size, low_tenure) %>%
+  count(firm_size)
+
+FirmSize_final <- left_join(FirmSize, FirmSize_early, by= c('firm_size' = 'firm_size'))
+FirmSize_final$Prop <- round(FirmSize_final$n.y/FirmSize_final$n.x, 2)
+FirmSize_final <- FirmSize_final[ , c(1,4,2,5)]
+
+
+      
+        
+#####################################################################################
+# Table 3
+kable(FirmSize_final, 'latex', col.names=c('Firm Size', 'Count', 'Total Count', 'First Year Prop.'), caption = 'First-Year Injuries by Firm Size', booktabs=T) %>% 
+    add_header_above(c("", "Tenure - 1 Year or Less" = 1, "All Tenure Lengths" = 2))
+@
+
+The fact that job tenure is a factor suggests that cumulative industry experience may also have an effect. In other words, are older (and more experienced) employees injured less frequently than their proportion in the workforce? 
+
+% This paragraph will change depending on industry
+Using age as a proxy for experience, Figure \ref{fig:Age}, shows both the \Sexpr{INDUSTRY_TYPE} industry's age distribution for workers in Tennessee\footnote{Age data from the 2016 American Community Survey (ACS) PUMS data.} (dashed line) and the proportion of injuries by age (solid line).  Workers older than 55 suffered fewer injuries than their proportionate share while the opposite was true for those younger than 55. Older workers seem to fare better overall when tenure is not considered.
+
+
+
+<<Age, echo=FALSE, warning=F, message=F, fig.width=4, fig.height=4, fig.cap='AgeYrs', fig.cap='Proportion of Injuries and Workers By Age', fig.pos='htbp'>>=
+# Count the number of injuries within defined intervals of age w/ the function below
+# Plot proportion of injuries vs. (employee) age_yrs 
+
+# Figure 3
+
+U <- c(16,20,25,35,45,55,65,90)
+counts_age <- numeric(length(U)-1)
+for(i in 1:length(counts_age)) {
+    counts_age[i] <- length(which(IndTable$age_yrs >= U[i] & IndTable$age_yrs < U[i+1]))
+}
+
+par(mar=c(5,6,4,2))
+
+
+# This is a solid line
+plot(U[-1], (counts_age/sum(counts_age)), type='l',  xlab= 'Employee Age - years', ylab= 'Proportion',  xaxt='n', ylim=c(0,0.45), mgp=c(4,1,0))
+axis(1, at= U[-1], labels= c('16-19', '20-24', '25-34', '35-44', '45-54', '55-64', '65+'), las=2 )
+
+
+# Add a dashed line to represent the  distribution of ages; reference 2017 CPS national data
+x <- c(16,20,25,35,45,55,65,90)           # determine  prop. of wkrs at these ages
+y_prop <- numeric(length(x))     # initialize y vector
+
+# Now read the 2016 ACS input file
+AgeDist <-   read.csv('~/Desktop/WorkComp/3rdYearWCfiles/3rdYearIndRpt/2016_TNacsPrivate.csv', sep=',', stringsAsFactors = F)
+
+AgeDist <- AgeDist[ , c('naicsp', 'pwgtp', 'agep')] #keep these columns only
+AgeDist <- AgeDist[order(AgeDist$agep) , ] # sort by age (increasing)
+AgeDist <- AgeDist[grep(mydata[which(mydata$industry==INDUSTRY_TYPE),3], AgeDist$naicsp), ] # get industry observations only
+
+# y is the proportion of industry employment at each value of x
+for(i in 1:length(x)) {
+                y_prop[i] <- sum(AgeDist[which(AgeDist$agep >= x[i]  &   AgeDist$agep < x[i + 1] ), 2 ])                     / sum(AgeDist$pwgtp)     # the 2nd column is wts
+}               # this function sums the wts less than the value of x and divides by sum of all wts
+
+
+lines(x[-1], y_prop[-length(x)], lty='dashed')  # plot the cumulative prop. of TN workers in the industry
+
+# Add a legend
+legend("topright",
+  legend = c("Injuries", "Workers"),
+  lty=c('solid', 'dashed'),
+  text.col = "black",
+  horiz = F ,
+  inset = c(0.1, 0.1))
+
+@
+
+\clearpage
+
+
+% Next, use dplyr to create table(s) to categorize the data
+
+% Make tables for injuries by body part, injury type, injury cause, & treatment type
+  
+<<Block, echo=FALSE, message=FALSE, warning=FALSE>>= 
+IndTable$low_tenure <- ifelse(IndTable$tenure_yrs <= 1, 1, NA) 
+low_tenure_count <- sum(!is.na(IndTable$low_tenure))
+
+IndTable$high_tenure <- ifelse(IndTable$tenure_yrs > 1, 1, NA) 
+high_tenure_count <- sum(!is.na(IndTable$high_tenure))
+
+
+Cols_needed <- c('CLM_TRAN_NBR', 'IA_BODY_PART_DESC', 'IA_SRCE_DESC', 'NATR_OF_INJR_DESC',
+                 'inj_yr', 'Naics3', 'tenure_yrs', 'age_yrs', 'INIT_TMNT', 'low_tenure', 'high_tenure')
+
+
+BodyPart <- IndTable[ , Cols_needed] %>%
+  group_by(IA_BODY_PART_DESC) %>%
+  count(IA_BODY_PART_DESC) %>%
+  arrange(desc(n)) %>%
+  mutate(freq = round(n / nrow(IndTable), 3 ) ) 
+BodyPart$rank <- round(rank(-BodyPart$n) , 0)  # rank in descending order
+
+BodyPart_low <- IndTable[ , Cols_needed] %>%
+  filter(low_tenure == 1)     %>%
+  group_by(IA_BODY_PART_DESC, low_tenure) %>%
+  count(IA_BODY_PART_DESC) %>% 
+  mutate(freq1= round(n / low_tenure_count, 3) ) 
+BodyPart_low$rank <- round(rank(-BodyPart_low$n) , 0)  # rank in descending order
+
+BodyPart_high <- IndTable[ , Cols_needed] %>%
+  filter(high_tenure == 1)     %>%
+  group_by(IA_BODY_PART_DESC, high_tenure) %>%
+  count(IA_BODY_PART_DESC) %>% 
+  mutate(freq1= round(n / high_tenure_count, 3) ) 
+BodyPart_high$rank <- round(rank(-BodyPart_high$n) , 0)  # rank in descending order
+
+BodyPart_final <- left_join(BodyPart_low, BodyPart_high, by= c('IA_BODY_PART_DESC' = 'IA_BODY_PART_DESC')) 
+BodyPart_final <- BodyPart_final[, c(1, 3:5, 7:9)]
+BodyPart_final <- BodyPart_final[order(BodyPart_final$rank.y), ]
+
+
+
+
+InjNature <- IndTable[ , Cols_needed] %>%
+  group_by(NATR_OF_INJR_DESC) %>%
+  count(NATR_OF_INJR_DESC) %>%
+  arrange(desc(n)) %>%
+  mutate(freq = round(n / nrow(IndTable), 3 ) )
+InjNature$rank <- round(rank(-InjNature$n) , 0)  # rank in descending order
+
+InjNature_low <- IndTable[ , Cols_needed] %>%
+  filter(low_tenure == 1)     %>%
+  group_by(NATR_OF_INJR_DESC, low_tenure) %>%
+  count(NATR_OF_INJR_DESC) %>% 
+  mutate(freq1= round(n / low_tenure_count, 3) ) 
+InjNature_low$rank <- round(rank(-InjNature_low$n) , 0)  # rank in descending order
+
+InjNature_high <- IndTable[ , Cols_needed] %>%
+  filter(high_tenure == 1)     %>%
+  group_by(NATR_OF_INJR_DESC, high_tenure) %>%
+  count(NATR_OF_INJR_DESC) %>% 
+  mutate(freq1= round(n / high_tenure_count, 3) ) 
+InjNature_high$rank <- round(rank(-InjNature_high$n) , 0)  # rank in descending order
+
+InjNature_final <- left_join(InjNature_low, InjNature_high, by= c('NATR_OF_INJR_DESC' = 'NATR_OF_INJR_DESC')) 
+InjNature_final <- InjNature_final[, c(1, 3:5, 7:9)]
+InjNature_final <- InjNature_final[order(InjNature_final$rank.y), ]
+
+
+
+InjCause <- IndTable[ , Cols_needed] %>%
+  group_by(IA_SRCE_DESC) %>%
+  count(IA_SRCE_DESC) %>%
+  arrange(desc(n)) %>%
+  mutate(freq = round(n / nrow(IndTable), 3 ) )
+InjCause$rank <- round(rank(-InjCause$n) , 0)  # rank in descending order
+
+InjCause_low <- IndTable[ , Cols_needed] %>%
+  filter(low_tenure == 1)     %>%
+  group_by(IA_SRCE_DESC, low_tenure) %>%
+  count(IA_SRCE_DESC) %>% 
+  mutate(freq1= round(n / low_tenure_count, 3) ) 
+InjCause_low$rank <- round(rank(-InjCause_low$n) , 0)  # rank in descending order
+
+InjCause_high <- IndTable[ , Cols_needed] %>%
+  filter(high_tenure == 1)     %>%
+  group_by(IA_SRCE_DESC, high_tenure) %>%
+  count(IA_SRCE_DESC) %>% 
+  mutate(freq1= round(n / high_tenure_count, 3) ) 
+InjCause_high$rank <- round(rank(-InjCause_high$n) , 0)  # rank in descending order
+
+InjCause_final <- left_join(InjCause_low, InjCause_high, by= c('IA_SRCE_DESC' = 'IA_SRCE_DESC')) 
+InjCause_final <- InjCause_final[, c(1, 3:5, 7:9)]
+InjCause_final <- InjCause_final[order(InjCause_final$rank.y), ]
+
+TrtmtGp <- data_frame(c('0', '1', '2', '3', '4' ,'5', NA), c('No Medical Treatment', 'Minor Onsite by Employer', 'Minor Clinic', 'Emergency Evaluation', 'Hospitalization', 'Future Major Medical', 'Unknown' ))
+names(TrtmtGp) <- c('code', 'type')
+
+IndTable$some_tenure <- ifelse(IndTable$tenure_yrs >= 0, 1, NA)  # Identify claims w/ tenure non-missing
+
+Treatment <- IndTable[!is.na(IndTable$some_tenure) ,]
+a <- match(as.character(Treatment$INIT_TMNT), c(0:5,NA))
+Treatment$INIT_TMNT <- TrtmtGp$type[a]
+
+Treatment <- Treatment[ , Cols_needed] %>%
+  group_by(INIT_TMNT) %>%
+  count(INIT_TMNT) %>%
+  arrange(desc(n))
+
+Treatment_early <- IndTable[ , Cols_needed] %>%
+  filter(low_tenure == 1)     %>%
+  group_by(INIT_TMNT, low_tenure) %>%
+  count(INIT_TMNT) 
+
+a <- match(as.character(Treatment_early$INIT_TMNT), c(0:5,NA))
+Treatment_early$INIT_TMNT <- TrtmtGp$type[a]
+
+Treatment_final <- left_join(Treatment, Treatment_early, by= c('INIT_TMNT' = 'INIT_TMNT')) 
+Treatment_final <- Treatment_final[, -3]
+Treatment_final$prop <- round(Treatment_final$n.y/Treatment_final$n.x, 2)
+
+FatCause <- IndTable[ which(IndTable$DTE_OF_DTH != 'NA' ), Cols_needed] %>%
+  group_by(IA_SRCE_DESC) %>%
+  count(IA_SRCE_DESC) %>%
+  arrange(desc(n)) 
+
+FatCause_early <- IndTable[ which(IndTable$DTE_OF_DTH != 'NA' ) , Cols_needed] %>%
+  filter(low_tenure == 1)     %>%
+  group_by(IA_SRCE_DESC, low_tenure) %>%
+  count(IA_SRCE_DESC) 
+
+
+FatCause_final <- left_join(FatCause, FatCause_early, by= c('IA_SRCE_DESC' = 'IA_SRCE_DESC')) 
+FatCause_final <- FatCause_final[ , -3]
+FatCause_final <- FatCause_final[order(FatCause_final$n.y, decreasing = T), ]
+
+
+@
+
+
+
+
+It is informative to categorize injuries across various other dimensions to see if tenure affects the category rank order. Consider the dimensions body part, injury type, and cause. The ten most commonly injured body parts are shown in Table \ref{tab:BodyPart} for workers with more and less than one year tenure. Note the rank order is similar for first year workers.
+
+<<BodyPart, echo=FALSE, fig.pos='htbp'>>=
+kable(head(BodyPart_final,10), 'latex', col.names=c('Body Part', 'Count', 'Freq.', 'Rank', 'Count', 'Freq.', 'Rank'), caption =
+'Injuries by Body Part - Top 10 Categories', booktabs=T) %>% 
+    add_header_above(c("", "Tenure - 1 Year or Less" = 3, "Tenure - More than 1 Year" = 3))
+
+
+@
+
+
+For type of injury (e.g. sprain, cut, etc.) and cause of injury (e.g. fall, slip, exertion, etc.), see Tables \ref{tab:InjType} and \ref{tab:InjCause}. In the former, first-year rankings closely approximate the ranking structure for other periods. In the latter, there is some rank variation. Not surprisingly, sprains, contusions, strains, and lacerations rank among the most frequent injury types and the lower back was the most frequent body part injured. It is interesting that lifting was one of the top two causes. One possible interpretation is that workers lifting heavy objects resulted in strains/overexertions that became musculoskeletal injuries to the lower back.
+
+<<InjType, echo=FALSE, fig.pos='htbp'>>=
+# Table 5
+kable(head(InjNature_final,10), 'latex', col.names=c('Injury Nature', 'Count', 'Freq.', 'Rank', 'Count', 'Freq.', 'Rank'), caption = 'Injuries by Type - Top 10 Categories', booktabs=T) %>% 
+    add_header_above(c("", "Tenure - 1 Year or Less" = 3, "Tenure - More than 1 Year" = 3))
+@
+
+
+
+
+% The kable function within knitr makes basic tables
+
+<<InjCause, echo=FALSE, fig.pos='htbp'>>=
+# Table 6
+kable(head(InjCause_final,10), 'latex', col.names=c('Injury Cause', 'Count', 'Freq.', 'Rank', 'Count', 'Freq.', 'Rank'), caption = 'Injuries by Cause - Top 10 Categories', booktabs=T) %>% 
+    add_header_above(c("", "Tenure - 1 Year or Less" = 3, "Tenure - More than 1 Year" = 3))
+@
+
+
+\clearpage
+
+
+It is useful to know that the rank order of injuries sustained by short-tenured employees do not appear to have varied significantly from those with longer tenure with respect to body part, nature, and cause of injury.
+
+% This is a wordcloud section
+<<WordCloud, echo=FALSE, warning=FALSE, fig.width=3.5, fig.height=3.5, fig.cap='Word Cloud of Injury Narratives', fig.align='center', fig.pos='htbp'>>=
+
+
+# Remove non-UTF8 characters
+jeopQ <- sapply(jeopQ, function(row) iconv(row, "latin1", "ASCII", sub=""))
+
+# Get words in lower case
+jeopQ <- tolower(jeopQ)
+
+#Now, we will perform a series of operations on the text data to simplify it.
+#First, we need to create a corpus.
+jeopCorpus <- Corpus(VectorSource(jeopQ))
+
+#Next, we will convert the corpus to a plain text document.
+jeopCorpus <- tm_map(jeopCorpus, PlainTextDocument)
+
+# Strip whitespace
+jeopCorpus <- tm_map(jeopCorpus, stripWhitespace)
+
+# Then, we will remove all punctuation and stopwords. Stopwords are commonly used words in the English language such as I, me, my, etc. You can see the full list of stopwords using stopwords('english').
+jeopCorpus <- tm_map(jeopCorpus, removePunctuation)
+
+# Remove numbers
+jeopCorpus <- tm_map(jeopCorpus, removeNumbers)
+
+# Remove stopwords
+jeopCorpus <- tm_map(jeopCorpus, removeWords, stopwords('en'))
+
+# Remove other meaningless words
+NoGoodWords <- c('left', 'right', 'ee', 'employe', 'employee', 'injuri', 'went', 
+                 'caus', 'get', 'got','use', '.get', 'alleg', 'alleged', 'allege',
+                 'allegedly', 'alleges', 'cause','part', 'state', 'stated',
+                 'states', 'statement')
+jeopCorpus <- tm_map(jeopCorpus, removeWords, NoGoodWords)
+
+
+
+# Next, we will perform stemming. This means that all the words are converted to their stem (Ex: learning -> learn, walked -> walk, etc.). This will ensure that different forms of the word are converted to the same form and plotted only once in the wordcloud.
+jeopCorpus <- tm_map(jeopCorpus, stemDocument)
+
+x1 <- c('fell', 'slip', 'trip', 'right','left', 'fall', 'employee')
+
+# Comment out the next line because it created issues in the output.
+# stemCompletion(x1, jeopCorpus[[1]][[1]], type="longest")
+
+# Now, we will plot the wordcloud.
+pal = brewer.pal(5,"Reds")
+wordcloud(jeopCorpus[[1]][[1]], max.words = 40, random.order = F,
+          random.color = F,
+          colors = pal)
+@
+
+Most claims in the data contain an associated injury narrative and the word cloud in Figure \ref{fig:WordCloud} features the most common words found in the narratives. The cloud reinforces the Table \ref{tab:BodyPart} results by showing `back' as the most prominent. The nouns `package' and `box' appear as does the verb `lift'. All these things suggest that lifting injuries are a major concern in transportation.
+
+\section{Injury Severity}
+
+To explore, non-fatal injury severity, Table \ref{tab:Treatment} shows the various initial treatment modes given in the claims data. Using these modes as a proxy for severity, we assumed those claims associated with future major medical, hospitalization, and emergency evaluation represent the most severe injuries. For hospitalization and emergency, first-year injury proportions approximated or exceeded those of the first-year baseline of \Sexpr{ round(cumsum(counts_ten / sum(counts_ten) )[2] , 2) }.
+
+<<Treatment, echo=FALSE, fig.pos='!h'>>=
+# Table 7
+# See code for 'TrtmtGp' table above
+# match codes to types(alpha)
+Treatment_final <- Treatment_final[c(3,7,6,1,5,2,4) , c(1,3,2,4)]
+
+kable(Treatment_final, format='latex', col.names=c('Type Treatment', 'Count', 'Total Count', 'First Year Prop.'), caption = 'Injuries by Initial Treatment Type', booktabs=T) %>% 
+    add_header_above(c("", "Tenure - 1 Year or Less" = 1, "All Tenure Lengths" = 2))
+@
+
+
+As stated earlier, job tenure is unknown for \Sexpr{round(100 * sum(is.na(IndTable$tenure_yrs))/nrow(IndTable), 0)} percent of \Sexpr{INDUSTRY_TYPE} sector claims. For claims containing such information, Table \ref{tab:Treatment} indicates that first-year employees received almost half of all hospitalization and emergency evaluation treatments.
+
+
+
+For fatal injuries, there were \Sexpr{sum(!is.na(IndTable$DTE_OF_DTH))} incidents during the study period. In this sector, \Sexpr{length(which(IndTable$DTE_OF_DTH != 'NA' & IndTable$tenure_yrs <= 1))} (\Sexpr{ round ( 100 * length(which(IndTable$DTE_OF_DTH != 'NA' & IndTable$tenure_yrs <= 1)) / sum(!is.na(IndTable$DTE_OF_DTH)) , 0)} percent) fatalities had employer service of less than one year. Not surprisingly, Table \ref{tab:InjTypeFat} indicates that vehicle-related fatalities predominate.
+
+<<InjTypeFat, echo=FALSE, fig.pos='htbp'>>=
+# Figure 8
+kable(FatCause_final[, c(1,3,2)], 'latex', col.names=c('Type', 'Count', 'Count'), caption = 'Fatal Injuries by Cause', booktabs=T) %>% 
+    add_header_above(c("", "Tenure - 1 Year or Less" = 1, "All Tenure Lengths" = 1))
+@
+
+\section{Other Considerations}
+For some industries (e.g. construction, agriculture, etc), there can be seasonality in the pattern of injuries or variation by day of the week. A quick review of Figures \ref{fig:MonthlyDist} and \ref{fig:DailyDist} indicates no unusual patterns except for a small spike in February 2015. Further investigation reveals this spike came from falls resulting from an ice storm that hit the region.
+
+
+
+\section{Final Thoughts}
+
+From the 2014-2016 Tennessee WC claims data, we highlight these items for consideration by the \Sexpr{INDUSTRY_TYPE} sector.
+
+\begin{enumerate}
+
+\item Among two-digit NAICS industries, transportation was above average for WC injury frequency  with a rate of \Sexpr{round(InjComp[(match(INDUSTRY_TYPE, InjComp$Sector_Description)), 4] , 1)} per 100 FTE (extrapolated rate is 5.0 per 100 FTE).
+
+\item Except for a spike in February 2015 (see Figure \ref{fig:MonthlyDist}) when ice and snow caused a number of falls, injuries did not have much variablility month-to-month.
+
+\item Strains of the musculature were the most common type of injury and happened at almost one and one-half times the rate of the second most common (contusions). The lower back was the most common body part to be injured with shoulders second.
+
+\item Employees with job tenure of less than one year sustained \Sexpr{ round(cumsum(counts_ten / sum(counts_ten) )[2] * 100, 0) } percent of all injuries in \Sexpr{INDUSTRY_TYPE}. 
+
+\item The job injury-tenure relationship varied with the size of employer. Firms with less than 100 employees had almost half of their injuries suffered by first-year employees vs. less than 40 percent for those with more than 100 employees.
+
+\item First-year injuries had rank orders for injury type almost identical to those of the set of all injuries. Injury cause was more variable between the groups but lifting and strains were first or second in both groups.
+
+\item Workers older than 55 had lower overall rates of injury than their younger peers.
+
+\end{enumerate}
+
+Further, \Sexpr{INDUSTRY_TYPE} is different than most industries because of more exposure to moving vehicle accidents. These accidents perenially cause more workplace fatalities than any other type. Further, the extreme physical demands of loading/unloading cargo in addition to extended driving spells leave newly hired workers vulnerable in the early portion of their job tenure with an employer. Employees working in smaller firms are more at risk. The industry should develop practices (e.g. new employee onboarding, mentorship, etc.) that target these at-risk workers.
+
+
+
+
+
+
+
+<<MonthlyDist, echo=FALSE, fig.cap= 'Monthly Distribution of Injuries', fig.pos='htbp'>>=
+InjDate <- data.frame(as.character(IndTable$DTE_OF_INJR))
+InjDate$month <- strftime(IndTable$DTE_OF_INJR, '%b') #create month column
+InjDate$year <- strftime(IndTable$DTE_OF_INJR, '%Y')  # create year column
+occurrences <- dplyr::count(InjDate, year, month) # count number of occurrences
+# Change months to factors 
+occurrences$month <- factor(occurrences$month, levels=month.abb)
+# Sort data chronolgically
+occurrences <- dplyr::arrange(occurrences, year, month)
+
+
+# Create barplot
+barplot(occurrences$n, names.arg=paste(occurrences$year, '', occurrences$month), las=2, ylab = 'Frequency')
+
+@
+
+<<DailyDist, echo=FALSE, fig.cap= 'Weekday Distribution of Injuries', fig.pos='htbp'>>=
+InjDay <- data.frame(as.character(IndTable$DTE_OF_INJR))
+InjDay$day <- as.factor(weekdays(IndTable$DTE_OF_INJR, abbreviate = F))
+
+occurr <- dplyr::count(InjDay, day) # count number of occurrences
+occurr <- occurr[c(3,4,2,6,7,5,1), ]
+
+
+
+# Create barplot
+barplot(occurr$n, names.arg=c('Sat', 'Sun', 'Mon', 'Tue', 'Wed','Thur','Fri'), xlab='Days of Week', ylab="Frequency")
+@
+
+\pagebreak
+
+
+
+
+\begin{landscape}
+
+\section{Appendix}
+
+<<AllClaims, echo=FALSE, warning=F, message=F, fig.width=8, fig.height=6, fig.cap='Structure of 2014-2016 FROI Claim Transactions', fig.pos='htbp' >>=
+
+include_graphics('./AllClaims.png', auto_pdf = getOption("knitr.graphics.auto_pdf", FALSE), 
+    dpi = NULL)
+@
+
+\end{landscape}
+
+\end{document}
